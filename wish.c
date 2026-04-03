@@ -201,7 +201,7 @@ void run_line(char *line) {
         waitpid(pids[i], NULL, 0);
     }
     if (should_exit) {
-        exit();
+        exit(-);
     }
 }
 
