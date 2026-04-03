@@ -101,7 +101,8 @@ pid_t process_command(const char *command) {
             free(command_copy);
             return 0;
         } 
-        exit(0);
+        free(command_copy);
+        return -1;
     }
 
     if (strcmp(args[0], "cd") == 0) {
@@ -167,7 +168,7 @@ pid_t process_command(const char *command) {
         free(command_copy);
         return pid;
     }
-
+    return 0;
     // printf("you entered: %s\n", command);
 }
 
@@ -182,18 +183,25 @@ void run_line(char *line) {
 
     pid_t pids[100];
     int pid_count = 0;
+    int should_exit = 0;
     for (int i = 0; i < count; i++) {
-        if (strlen(segment) == 0 || strspn(segment, " \t") == strlen(segment)) {
-            print_error();
+        char *seg = segments[i];
+        if (strlen(seg) == 0 || strspn(seg, " \t") == strlen(seg)) {
             continue;
         }
         pid_t pid = process_command(segments[i]);
+        if (pid == -1) {
+            should_exit = 1;
+        }
         if (pid > 0) {
             pids[pid_count++] = pid;
         }
     }
     for (int i = 0; i < pid_count; i++) {
         waitpid(pids[i], NULL, 0);
+    }
+    if (should_exit) {
+        exit();
     }
 }
 
