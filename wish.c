@@ -1,3 +1,9 @@
+/*
+    Project 1
+    CSC 4100
+    Jack Siegers, Graham Wheeler
+*/
+
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,11 +16,17 @@
 char *path[100];
 int path_count = 1;
 
+/*
+    Standard error message via the rubric
+*/
 void print_error() {
     char error_message[30] = "An error has occurred\n";
     write(STDERR_FILENO, error_message, strlen(error_message));
 }
 
+/*
+    Checks for valid output redirection
+*/
 int parse_redirection(char *command, char **outfile) {
     *outfile = NULL;
     int redirection_count = 0;
@@ -61,11 +73,10 @@ int parse_redirection(char *command, char **outfile) {
     return 1;
 }
 
+/*
+    Processes a single command, returns the pid of the child process
+*/
 pid_t process_command(const char *command) {
-
-    // this is called for each command from both
-    // interactive and shell versions.
-    // work on this later
 
     char *command_copy = strdup(command);
     char *outfile = NULL;
@@ -172,6 +183,9 @@ pid_t process_command(const char *command) {
     // printf("you entered: %s\n", command);
 }
 
+/*
+    Wrapper for process_command for multiple commands separated by the user
+*/
 void run_line(char *line) {
     char *segments[100];
     int count = 0;
@@ -205,6 +219,9 @@ void run_line(char *line) {
     }
 }
 
+/*
+    Loop for runnning in shell mode
+*/
 void run_shell() {
     char *command = NULL;
     size_t len = 0;
@@ -227,6 +244,9 @@ void run_shell() {
     free(command);
 }
 
+/*
+    Loop for running in batch mode
+*/
 void run_batch(FILE *input) {
     char *command = NULL;
     size_t len = 0;
@@ -241,6 +261,9 @@ void run_batch(FILE *input) {
     free(command);
 }
 
+/*
+    Main function that decides interactive or batch modes
+*/
 int main(int argc, char *argv[]) {
     path[0] = strdup("/bin");
 
