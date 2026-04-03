@@ -4,34 +4,133 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
+#include <limits.h>
 
 char *path[100];
 int path_count = 1;
 
-void process_command(const char *command) {
+void print_error() {
+    char error_message[30] = "An error has occurred\n";
+    write(STDERR_FILENO, error_message, strlen(error_message));
+}
+
+int parse_redirection(char *command, char **outfile) {
+    *outfile = NULL;
+    int redirection_count = 0;
+    char *pos = command;
+    char *redirection_pos = NULL;
+    while (*pos != '\0') {
+        if (*pos == '>') {
+            redirection_count++;
+            if (redirection_count > 1) {
+                return -1;
+            }
+            redirection_pos = pos;
+        }
+        pos++;
+    }
+
+    if (redirection_count ==0) {
+        return 0;
+    }
+
+    *redirection_pos = '\0';
+    char *file_side  = redirection_pos + 1;
+
+    char *file_token;
+    char *file_ptr = file_side;
+    int file_count = 0;
+    char *found_file = NULL;
+    while ((file_token = strsep(&file_ptr, " \t")) != NULL) {
+        if (*file_token == '\0') continue;
+        if (file_count == 0) {
+            *outfile = file_token;
+            file_count++;
+            found_file = file_token;
+        } else {
+            return -1;
+        }
+    }
+
+    if (file_count == 0) {
+        return -1;
+    }
+
+    *outfile = found_file;
+    return 1;
+}
+
+pid_t process_command(const char *command) {
 
     // this is called for each command from both
     // interactive and shell versions.
     // work on this later
 
     char *command_copy = strdup(command);
-    char *command_ptr = command_copy;
+    char *outfile = NULL;
+    int redirection_result = parse_redirection(command_copy, &outfile);
+    if (redirection_result == -1) {
+        print_error();
+        free(command_copy);
+        return 0;
+    }
 
+    char *command_ptr = command_copy;
     char *args[100];
     int arg_count = 0;
     char *token;
-    while ((token = strsep(&command_ptr, " ")) != NULL) {
+
+    while ((token = strsep(&command_ptr, " \t")) != NULL) {
         if (*token =='\0') continue;
         args[arg_count++] = token;
     }
     args[arg_count] = NULL;
 
     if (arg_count == 0) {
+        if (redirection_result == 1) {
+            print_error();
+        }
         free(command_copy);
-        return;
+        return 0;
     }
 
-    char full_path[200];
+    if (strcmp(args[0], "exit") == 0) {
+        if (arg_count != 1) {
+            print_error();
+            free(command_copy);
+            return 0;
+        } 
+        exit(0);
+    }
+
+    if (strcmp(args[0], "cd") == 0) {
+        if (arg_count != 2) {
+            print_error();
+            free(command_copy);
+            return 0;
+        }
+        if (chdir(args[1]) != 0) {
+            print_error();
+        }
+        free(command_copy);
+        return 0;
+    }
+
+    if (strcmp(args[0], "path") == 0) {
+        for (int i = 0; i < path_count; i++) {
+            free(path[i]);
+            path[i] = NULL;
+        }
+        path_count = 0;
+        for (int i = 1; i < arg_count; i++) {
+            path[path_count++] = strdup(args[i]);
+        }
+        free(command_copy);
+        return 0;
+    }
+
+    char full_path[PATH_MAX];
     int found = 0;
     for (int i = 0; i < path_count; i++) {
         snprintf(full_path, sizeof(full_path), "%s/%s", path[i], args[0]);
@@ -42,30 +141,60 @@ void process_command(const char *command) {
     }
 
     if (!found) {
-        char error_message[30] = "An error has occurred\n";
-        write(STDERR_FILENO, error_message, strlen(error_message));
+        print_error();
         free(command_copy);
-        return;
+        return 0;
     }
 
     pid_t pid = fork();
     if (pid < 0) {
-        char error_message[30] = "An error has occurred\n";
-        write(STDERR_FILENO, error_message, strlen(error_message));
+        print_error();
         free(command_copy);
-        return;
+        return 0;
     } else if (pid == 0) {
+        if (outfile != NULL) {
+            int fd = open(outfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) { print_error(); free(command_copy); exit(1); }
+            dup2(fd, STDOUT_FILENO);
+            dup2(fd, STDERR_FILENO);
+            close(fd);
+        }
         execv(full_path, args);
-        char error_message[30] = "An error has occurred\n";
-        write(STDERR_FILENO, error_message, strlen(error_message));
+        print_error();
+        free(command_copy);
         exit(1);
     } else {
-        waitpid(pid, NULL, 0);
+        free(command_copy);
+        return pid;
     }
-    
-    free(command_copy);
 
     // printf("you entered: %s\n", command);
+}
+
+void run_line(char *line) {
+    char *segments[100];
+    int count = 0;
+    char *line_ptr = line;
+    char *segment;
+    while ((segment = strsep(&line_ptr, "&")) != NULL) {
+        segments[count++] = segment;
+    }
+
+    pid_t pids[100];
+    int pid_count = 0;
+    for (int i = 0; i < count; i++) {
+        if (strlen(segment) == 0 || strspn(segment, " \t") == strlen(segment)) {
+            print_error();
+            continue;
+        }
+        pid_t pid = process_command(segments[i]);
+        if (pid > 0) {
+            pids[pid_count++] = pid;
+        }
+    }
+    for (int i = 0; i < pid_count; i++) {
+        waitpid(pids[i], NULL, 0);
+    }
 }
 
 void run_shell() {
@@ -74,21 +203,17 @@ void run_shell() {
     ssize_t bytes_read;
 
     while (1) {
-        printf("wish> ");
-        fflush(stdout);
+        write(STDOUT_FILENO, "wish> ", 6);
 
         bytes_read = getline(&command, &len, stdin);
         if (bytes_read == -1) {
+            free(command);
             exit(0);
         }
 
         command[strcspn(command, "\n")] = '\0';
 
-        if (strcmp(command, "exit") == 0) {
-            exit(0);
-        }
-
-        process_command(command);
+        run_line(command);
     }
 
     free(command);
@@ -102,13 +227,9 @@ void run_batch(FILE *input) {
     while ((bytes_read = getline(&command, &len, input)) != -1) {
         command[strcspn(command, "\n")] = '\0';
 
-        if (strcmp(command, "exit") == 0) {
-            exit(0);
-        }
-
-        process_command(command);
+        run_line(command);
     }
-
+    
     free(command);
 }
 
@@ -120,18 +241,15 @@ int main(int argc, char *argv[]) {
     } else if (argc == 2) {
         FILE *input = fopen(argv[1], "r");
         if (input == NULL) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
+            print_error();
             exit(1);
         }
         run_batch(input);
         fclose(input);
     } else {
-        char error_message[30] = "An error has occurred\n";
-        write(STDERR_FILENO, error_message, strlen(error_message));
+        print_error();
         exit(1);
     }
 
-    printf("exiting\n");
     return 0;
 }

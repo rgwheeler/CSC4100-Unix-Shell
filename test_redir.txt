@@ -1,0 +1,12 @@
+ls > out1.txt
+cat out1.txt
+ls>out2.txt
+cat out2.txt
+ls /nonexistent > out3.txt
+cat out3.txt
+ls > dup.txt
+ls > dup.txt
+cat dup.txt
+ls > a.txt > b.txt
+ls > a.txt b.txt
+ls >
